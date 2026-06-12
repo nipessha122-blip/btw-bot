@@ -11,7 +11,7 @@ const SYMBOL = process.env.SYMBOL || 'BTWUSDT';
 const DB_PATH = process.env.DB_PATH || './market_data.db';
 const REST = 'https://fapi.binance.com';
 const WS_URL = `wss://fstream.binance.com/stream?streams=` +
-  ['kline_1m', 'kline_15m', 'kline_1h', 'markPrice', 'bookTicker']
+  ['kline_1m', 'kline_15m', 'kline_1h', 'markPrice@1s', 'bookTicker']
     .map(s => `${SYMBOL.toLowerCase()}@${s}`).join('/');
 const INTERVALS = ['1m', '15m', '1h'];
 const OI_POLL_MS = 5 * 60 * 1000;      // open interest every 5 min
@@ -137,17 +137,21 @@ async function pollDepth() {
 let ws = null, lastMsgAt = Date.now(), reconnectDelay = 1000;
 let latestMark = null, latestBook = null;
 
+const streamCounts = {};
 function handleMessage(raw) {
   lastMsgAt = Date.now();
   let msg; try { msg = JSON.parse(raw); } catch { return; }
-  const d = msg.data; if (!d || !d.e) return;
+  const d = msg.data; if (!d) return;
+  const key = msg.stream || d.e || 'unknown';
+  streamCounts[key] = (streamCounts[key] || 0) + 1;
   try {
     if (d.e === 'kline' && d.k && d.k.x === true) {
       const k = d.k;
       stmt.kline.run(SYMBOL, k.i, k.t, k.o, k.h, k.l, k.c, k.v, k.q, k.n, k.T);
-    } else if (d.e === 'markPriceUpdate') {
+    } else if (d.e === 'markPriceUpdate' || (d.p !== undefined && d.r !== undefined && d.T !== undefined)) {
+      // markPrice stream: p=mark, i=index, r=funding rate, T=next funding time
       latestMark = d;
-    } else if (d.e === 'bookTicker' || (d.b && d.a && d.s)) {
+    } else if (d.e === 'bookTicker' || (d.b && d.a)) {
       latestBook = d;
     }
   } catch (e) { logErr('handleMessage:', e.message); }
@@ -198,7 +202,7 @@ function heartbeat() {
     const counts = {};
     for (const t of ['klines', 'funding', 'open_interest', 'book', 'depth'])
       counts[t] = db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c;
-    log('heartbeat', JSON.stringify(counts), `rssMB=${(process.memoryUsage().rss / 1048576).toFixed(0)}`);
+    log('heartbeat', JSON.stringify(counts), `streams=${JSON.stringify(streamCounts)}`, `rssMB=${(process.memoryUsage().rss / 1048576).toFixed(0)}`);
   } catch (e) { logErr('heartbeat:', e.message); }
 }
 
