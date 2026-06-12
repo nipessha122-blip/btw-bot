@@ -10,9 +10,9 @@ const WebSocket = require('ws');
 const SYMBOL = process.env.SYMBOL || 'BTWUSDT';
 const DB_PATH = process.env.DB_PATH || './market_data.db';
 const REST = 'https://fapi.binance.com';
-const WS_URL = `wss://fstream.binance.com/stream?streams=` +
-  ['kline_1m', 'kline_15m', 'kline_1h', 'markPrice@1s', 'bookTicker']
-    .map(s => `${SYMBOL.toLowerCase()}@${s}`).join('/');
+const WS_URL = `wss://fstream.binance.com/stream`;
+const STREAMS = ['kline_1m', 'kline_15m', 'kline_1h', 'markPrice@1s', 'bookTicker']
+  .map(s => `${SYMBOL.toLowerCase()}@${s}`);
 const INTERVALS = ['1m', '15m', '1h'];
 const OI_POLL_MS = 5 * 60 * 1000;      // open interest every 5 min
 const DEPTH_POLL_MS = 5 * 60 * 1000;   // order book depth every 5 min
@@ -141,6 +141,12 @@ const streamCounts = {};
 function handleMessage(raw) {
   lastMsgAt = Date.now();
   let msg; try { msg = JSON.parse(raw); } catch { return; }
+  // subscription confirmation / error response
+  if (msg.result !== undefined || msg.error) {
+    if (msg.error) logErr('SUBSCRIBE error:', JSON.stringify(msg.error));
+    else log('SUBSCRIBE confirmed (id', msg.id, ')');
+    return;
+  }
   const d = msg.data; if (!d) return;
   const key = msg.stream || d.e || 'unknown';
   streamCounts[key] = (streamCounts[key] || 0) + 1;
@@ -173,9 +179,10 @@ function connect() {
   log('WS connecting...');
   ws = new WebSocket(WS_URL);
   ws.on('open', () => {
-    log('WS connected');
+    log('WS connected; subscribing to', STREAMS.length, 'streams');
     reconnectDelay = 1000;
     lastMsgAt = Date.now();
+    ws.send(JSON.stringify({ method: 'SUBSCRIBE', params: STREAMS, id: 1 }));
     for (const iv of INTERVALS) backfill(iv); // repair any gap from downtime
   });
   ws.on('message', handleMessage);
@@ -237,3 +244,4 @@ if (process.env.SMOKE_TEST) {
   setInterval(heartbeat, 10 * 60 * 1000);
   pollOpenInterest(); pollDepth();
 })();
+
