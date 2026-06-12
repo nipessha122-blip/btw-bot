@@ -237,4 +237,3 @@ if (process.env.SMOKE_TEST) {
   setInterval(heartbeat, 10 * 60 * 1000);
   pollOpenInterest(); pollDepth();
 })();
-
