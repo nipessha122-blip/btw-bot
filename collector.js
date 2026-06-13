@@ -133,6 +133,16 @@ async function pollDepth() {
   } catch (e) { logErr('depth:', e.message); }
 }
 
+async function pollFunding() {
+  try {
+    const d = await rest('/fapi/v1/premiumIndex', { symbol: SYMBOL });
+    // markPrice, indexPrice, lastFundingRate, nextFundingTime
+    stmt.funding.run(SYMBOL, Date.now(),
+      String(d.markPrice), String(d.indexPrice),
+      String(d.lastFundingRate), Number(d.nextFundingTime) || 0);
+  } catch (e) { logErr('funding:', e.message); }
+}
+
 // ---------- websocket ----------
 let ws = null, lastMsgAt = Date.now(), reconnectDelay = 1000;
 let latestMark = null, latestBook = null;
@@ -238,10 +248,10 @@ if (process.env.SMOKE_TEST) {
   for (const iv of INTERVALS) await backfill(iv);
   connect();
   setInterval(sampleLatest, SAMPLE_MS);
+  setInterval(pollFunding, SAMPLE_MS);
   setInterval(pollOpenInterest, OI_POLL_MS);
   setInterval(pollDepth, DEPTH_POLL_MS);
   setInterval(loadTickSize, 6 * 3600 * 1000); // refresh contract status 4x/day
   setInterval(heartbeat, 10 * 60 * 1000);
-  pollOpenInterest(); pollDepth();
+  pollOpenInterest(); pollDepth(); pollFunding();
 })();
-
